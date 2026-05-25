@@ -48,6 +48,7 @@ set(EXERCISES
     Hello3DCube
     VivencialOne
     ModuloTres
+    VivencialTwo
 )
 
 add_compile_options(-Wno-pragmas)
@@ -79,4 +80,5 @@ foreach(EXERCISE ${EXERCISES})
 endforeach()
 
 target_sources(VivencialOne PRIVATE "./Code Snippets/LoadSimpleOBJ.cpp")
+target_sources(VivencialTwo PRIVATE "./Code Snippets/LoadSimpleOBJWithTextureAndLighting.cpp")
 target_sources(ModuloTres PRIVATE "./Code Snippets/LoadSimpleOBJWithTexture.cpp")
