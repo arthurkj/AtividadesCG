@@ -19,3 +19,15 @@
 
 WASD - Movimenta
 Mouse - Camêra
+
+### Resultado M6
+![alt text](../imageModuleSix1.png)
+![alt text](../imageModuleSix2.png)
+![alt text](../imageModuleSix3.png)
+
+WASD - Movimenta
+Mouse - Camêra
+Tab - Seleciona outro objeto
+Setas - Movimenta objeto selecionado
+P - Marca ponto da rota do objeto selecionado
+Space - Inicia/Para rota do objeto selecionado
