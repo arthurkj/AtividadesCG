@@ -1,0 +1,7 @@
+CAMERA -2.5 2.0 4.0 -55.0 -25.0 45.0 0.1 100.0
+LIGHT 2.0 2.0 2.0 0.09 0.032
+LIGHT -2.0 1.0 2.0 0.35 0.44
+LIGHT 0.0 2.0 -3.0 0.14 0.07
+
+OBJECT ../assets/Modelos3D/GrauB/field.obj 0.0 -0.30 0.0 0.3 0.0
+OBJECT ../assets/Modelos3D/GrauB/soccer_ball.obj 0.0 -0.10 0.0 0.005 0.0

@@ -51,6 +51,7 @@ set(EXERCISES
     VivencialTwo
     ModuloCinco
     ModuloSeis
+    GrauB
 )
 
 add_compile_options(-Wno-pragmas)
@@ -86,3 +87,4 @@ target_sources(VivencialTwo PRIVATE "./Code Snippets/LoadSimpleOBJWithTextureAnd
 target_sources(ModuloTres PRIVATE "./Code Snippets/LoadSimpleOBJWithTexture.cpp")
 target_sources(ModuloCinco PRIVATE "./Code Snippets/LoadSimpleOBJWithTextureAndLighting.cpp")
 target_sources(ModuloSeis PRIVATE "./Code Snippets/LoadSimpleOBJWithTextureAndLighting.cpp")
+target_sources(GrauB PRIVATE "./src/Cena.cpp")
