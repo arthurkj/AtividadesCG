@@ -36,7 +36,6 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 // Protótipos das funções
 int setupShader();
 GLuint loadTexture(string filePath);
-void loadScene(std::string filePath, Camera &camera, std::vector<Object3D> &objects);
 
 // Dimensões da janela (pode ser alterado em tempo de execução)
 const GLuint WIDTH = 1000, HEIGHT = 1000;
@@ -44,7 +43,7 @@ const GLuint WIDTH = 1000, HEIGHT = 1000;
 bool keyLightOn = true;
 bool fillLightOn = true;
 bool backLightOn = true;
-float q = 10.0f;
+float q = 20.0f;
 
 // Código fonte do Vertex Shader (em GLSL): ainda hardcoded
 const GLchar *vertexShaderSource = R"(
@@ -141,7 +140,7 @@ void main()
 bool rotateX=false, rotateY=false, rotateZ=false;
 
 float moveSpeed = 0.05f;
-float scaleSpeed = 0.05f;
+float scaleSpeed = 0.01f;
 float rotSpeed = 0.05f;
 
 std::vector<Object3D> objects;
@@ -254,7 +253,7 @@ int main()
 		glfwPollEvents();
 
 		// Limpa o buffer de cor
-		glClearColor(0.0f, 0.3f, 0.8f, 1.0f); //cor de fundo
+		glClearColor(0.1f, 0.1f, 0.1f, 1.0f); //cor de fundo
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		glm::vec3 objPos = glm::vec3(0, 0, 0);
@@ -385,7 +384,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
     if (key == GLFW_KEY_LEFT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
         objects[selectedObject].scale -= glm::vec3(scaleSpeed);
-        if (objects[selectedObject].scale.x < 0.1f) objects[selectedObject].scale = glm::vec3(0.1f);
+        if (objects[selectedObject].scale.x < 0.0f) objects[selectedObject].scale = glm::vec3(0.01f);
     }
     if (key == GLFW_KEY_RIGHT_BRACKET && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
         objects[selectedObject].scale += glm::vec3(scaleSpeed);
