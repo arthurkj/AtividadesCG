@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 
+// Documentação utilizada como referência: https://learnopengl.com/Getting-started/Camera
 class Camera {
 public:
     glm::vec3 Position;
@@ -14,7 +15,9 @@ public:
     glm::vec3 Right;
     glm::vec3 WorldUp;
 
+    // Movimento horizontal
     float Yaw;
+    // Movimento vertical
     float Pitch;
     float MovementSpeed;
     float MouseSensitivity;
@@ -72,21 +75,29 @@ struct Object3D {
     glm::vec3 position;
     glm::vec3 scale;
     glm::vec3 rotation;
+    // Ambiente
     glm::vec3 ka;
+    // Difusa
     glm::vec3 kd;
+    // Especular
     glm::vec3 ks;
     std::vector<glm::vec3> pathPoints; 
     int currentTarget = 0;             
     bool isMoving = false;
+    // Parâmetro t para interpolação ao longo da curva de Bézier
     float tParam = 0.0f;
 };
 
 struct Light {
     glm::vec3 position;
+    // Atenuação
+    // Fator linear
     float kl;
+    // Fator quadrático
     float kq;
 };
 
 // Protótipos das funções
 int loadSimpleOBJ(std::string filePath, int &nVertices, std::string &texturePath, glm::vec3 &ka, glm::vec3 &kd, glm::vec3 &ks);
 void loadScene(std::string filePath, Camera &camera, std::vector<Object3D> &objects, std::vector<Light> &lights, float &fov, float &zNear, float &zFar);
+GLuint loadTexture(std::string filePath);

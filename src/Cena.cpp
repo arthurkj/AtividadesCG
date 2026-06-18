@@ -4,10 +4,10 @@
 #include <iostream>
 #include <vector>
 
-// Avisa o compilador que essa função existe em outro arquivo do projeto
-extern GLuint loadTexture(std::string filePath);
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
-// Implementação do loadSimpleOBJ
+// Função para carregar um modelo OBJ simples, retornando o VAO e preenchendo o número de vértices, caminho da textura e propriedades de material
 int loadSimpleOBJ(std::string filePath, int &nVertices, std::string &texturePath, glm::vec3 &ka, glm::vec3 &kd, glm::vec3 &ks)
 {
     ka = glm::vec3(0.1f);
@@ -93,22 +93,14 @@ int loadSimpleOBJ(std::string filePath, int &nVertices, std::string &texturePath
                 if (std::getline(ss, index, '/')) ti = !index.empty() ? std::stoi(index) - 1 : 0;
                 if (std::getline(ss, index)) ni = !index.empty() ? std::stoi(index) - 1 : 0;
 
-                // 1. Posição (3 valores)
                 vBuffer.push_back(vertices[vi].x);
                 vBuffer.push_back(vertices[vi].y);
                 vBuffer.push_back(vertices[vi].z);
                 
-                // 2. Cor (3 valores - Branco Padrão)
-                vBuffer.push_back(1.0f);
-                vBuffer.push_back(1.0f);
-                vBuffer.push_back(1.0f);
-                
-                // 3. Normal (3 valores)
                 vBuffer.push_back(normals[ni].x);
                 vBuffer.push_back(normals[ni].y);
                 vBuffer.push_back(normals[ni].z);
 
-                // 4. Textura (2 valores)
                 vBuffer.push_back(texCoords[ti].s);
                 vBuffer.push_back(texCoords[ti].t);
             }
@@ -125,32 +117,54 @@ int loadSimpleOBJ(std::string filePath, int &nVertices, std::string &texturePath
     glGenVertexArrays(1, &VAO);
     glBindVertexArray(VAO);
     
-    // Layout 0: Posição (3 floats)
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(GLfloat), (GLvoid*)0);
+    // Posição
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (GLvoid*)0);
     glEnableVertexAttribArray(0);
 
-    // Layout 1: Cor (3 floats)
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(GLfloat), (GLvoid*)(3 * sizeof(GLfloat)));
+    // Normais
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (GLvoid*)(3 * sizeof(GLfloat)));
     glEnableVertexAttribArray(1);
-
-    // Layout 2: Normal (3 floats)
-    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(GLfloat), (GLvoid*)(6 * sizeof(GLfloat)));
-    glEnableVertexAttribArray(2);
     
-    // Layout 3: Textura (2 floats)
-    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(GLfloat), (GLvoid*)(9 * sizeof(GLfloat)));
-    glEnableVertexAttribArray(3);
+    // Coordenadas de textura
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(GLfloat), (GLvoid*)(6 * sizeof(GLfloat)));
+    glEnableVertexAttribArray(2);
     
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
-    // Dividimos por 11 pois agora cada vértice tem exatamente 11 valores
-    nVertices = vBuffer.size() / 11;
+    nVertices = vBuffer.size() / 8; // x, y, z, nx, ny, nz, s, t (valores atualmente armazenados por vértice)
 
     return VAO;
 }
 
-// Implementação do loadScene
+// Função para carregar uma textura
+GLuint loadTexture(std::string filePath) {
+    GLuint textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_2D, textureID);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    int width, height, nrChannels;
+    stbi_set_flip_vertically_on_load(true); 
+    unsigned char *data = stbi_load(filePath.c_str(), &width, &height, &nrChannels, 0);
+    
+    if (data) {
+        GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+        glGenerateMipmap(GL_TEXTURE_2D);
+    } else {
+        std::cout << "Falha ao carregar textura: " << filePath << std::endl;
+    }
+    stbi_image_free(data);
+    return textureID;
+}
+
+// Função para carregar a cena a partir de um arquivo txt.
+// Preenche os objetos, luzes e parâmetros da câmera
 void loadScene(std::string filePath, Camera &camera, std::vector<Object3D> &objects, std::vector<Light> &lights, float &fov, float &zNear, float &zFar) {
     std::ifstream file(filePath);
     if (!file.is_open()) {
@@ -189,11 +203,13 @@ void loadScene(std::string filePath, Camera &camera, std::vector<Object3D> &obje
             obj.textureID = loadTexture(texturePath);
             obj.position = glm::vec3(px, py, pz);
             obj.scale = glm::vec3(scale);
+            // A rotação é aplicada apenas no eixo Y, permitindo que um objeto gire em torno de si mesmo
             obj.rotation = glm::vec3(0.0f, rot, 0.0f);
             obj.ka = ka; 
             obj.kd = kd; 
             obj.ks = ks;
-            obj.tParam = 0.0f; // Inicializa o controle de Bézier
+            obj.tParam = 0.0f;
+            obj.isMoving = false;
             
             objects.push_back(obj);
         } else if (type == "PATH") {
@@ -202,6 +218,7 @@ void loadScene(std::string filePath, Camera &camera, std::vector<Object3D> &obje
                 ss >> px >> py >> pz;
                 objects.back().pathPoints.push_back(glm::vec3(px, py, pz));
                 
+                // O cálculo da curva de Bézier exige pelo menos 4 pontos
                 if (objects.back().pathPoints.size() >= 4) {
                     objects.back().isMoving = true;
                 }

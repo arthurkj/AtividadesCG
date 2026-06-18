@@ -23,9 +23,6 @@ using namespace std;
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
 #include "Cena.h"
 
 // Protótipo da função de callback de teclado
@@ -35,7 +32,6 @@ void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 
 // Protótipos das funções
 int setupShader();
-GLuint loadTexture(string filePath);
 
 // Dimensões da janela (pode ser alterado em tempo de execução)
 const GLuint WIDTH = 1000, HEIGHT = 1000;
@@ -43,15 +39,17 @@ const GLuint WIDTH = 1000, HEIGHT = 1000;
 bool keyLightOn = true;
 bool fillLightOn = true;
 bool backLightOn = true;
-float q = 20.0f;
+
+// Expoente de reflexão especular
+// O ponto de brilho fica menor e mais concentrado quando o shininess é maior
+float shininess = 20.0f;
 
 // Código fonte do Vertex Shader (em GLSL): ainda hardcoded
 const GLchar *vertexShaderSource = R"(
 #version 400
 layout (location = 0) in vec3 position;
-layout (location = 1) in vec3 color;
-layout (location = 2) in vec3 normal;
-layout (location = 3) in vec2 texc;
+layout (location = 1) in vec3 normal;
+layout (location = 2) in vec2 texc;
 
 uniform mat4 projection;
 uniform mat4 model;
@@ -59,82 +57,76 @@ uniform mat4 view;
 
 out vec2 texCoord;
 out vec3 vNormal;
-out vec4 fragPos; 
-out vec4 vColor;
+out vec3 fragPos; 
 void main()
 {
-    gl_Position = projection * view * model * vec4(position.x, position.y, position.z, 1.0);
-    fragPos = model * vec4(position.x, position.y, position.z, 1.0);
+    vec4 worldPos = model * vec4(position, 1.0);
+    fragPos = worldPos.xyz;
     texCoord = texc;
     vNormal = mat3(transpose(inverse(model))) * normal;
-    vColor = vec4(color,1.0);
+    gl_Position = projection * view * worldPos;
 })";
 
 //Códifo fonte do Fragment Shader (em GLSL): ainda hardcoded
 const GLchar *fragmentShaderSource = R"(
 #version 400
 in vec2 texCoord;
+in vec3 fragPos;
+in vec3 vNormal;
+
 uniform sampler2D texBuff;
 
-// Nossas 3 luzes (Arrays no lugar de uma variável única)
 uniform vec3 lightPos[3];
 uniform bool lightOn[3]; // Controle para ligar/desligar
-uniform float kl[3];     // Fator Linear da atenuação
-uniform float kq[3];     // Fator Quadrático da atenuação
+uniform float Kl[3];     // Fator Linear da atenuação
+uniform float Kq[3];     // Fator Quadrático da atenuação
 
 uniform vec3 camPos;
-uniform vec3 ka;
-uniform vec3 kd;
-uniform vec3 ks;
-uniform float q;
-out vec4 color;
-in vec4 fragPos;
-in vec3 vNormal;
-in vec4 vColor;
+
+uniform vec3 Ka;
+uniform vec3 Kd;
+uniform vec3 Ks;
+
+uniform float shininess;
+
+out vec4 frag_colour;
 
 void main()
 {
 	vec3 lightColor = vec3(0.8, 0.8, 0.8);
 	vec4 objectColor = texture(texBuff, texCoord);
 
-	// Coeficiente de luz ambiente (A luz ambiente é uma só para a cena toda)
-	vec3 ambient = ka * 0.3 * lightColor;
+	// Coeficiente de luz ambiente
+	vec3 ambient = Ka * 0.6 * lightColor;
 
     // Acumuladores para as 3 luzes
     vec3 diffuseTotal = vec3(0.0);
     vec3 specularTotal = vec3(0.0);
 
+    //Coeficiente de reflexão difusa
 	vec3 N = normalize(vNormal);
 	vec3 V = normalize(camPos - vec3(fragPos));
 
-    // Laço passando pelas 3 fontes de luz
     for(int i = 0; i < 3; i++) {
         if(lightOn[i]) {
-            // 1. Calcula a distância (d) e a atenuação
-            float d = length(lightPos[i] - vec3(fragPos));
-            // Assumimos Kc = 1.0 para evitar divisão por zero
-            float att = 1.0 / (1.0 + kl[i] * d + kq[i] * (d * d));
+            float d = length(lightPos[i] - fragPos);
+            float attenuation = 1.0 / (1.0 + Kl[i] * d + Kq[i] * (d * d));
 
-            // Direção da luz atual
-	        vec3 L = normalize(lightPos[i] - vec3(fragPos));
-	        
-            // 2. Coeficiente de reflexão difusa (com atenuação)
+            vec3 L = normalize(lightPos[i] - fragPos);
+            
             float diff = max(dot(N, L), 0.0);
-	        vec3 diffuse = kd * diff * lightColor * att; 
+            vec3 diffuse = Kd * diff * lightColor * attenuation; 
             diffuseTotal += diffuse;
 
-	        // 3. Coeficiente de reflexão especular (com atenuação)
-	        vec3 R = normalize(reflect(-L, N));
-	        float spec = max(dot(R, V), 0.0);
-	        spec = pow(spec, q);
-	        vec3 specular = ks * spec * lightColor * att;
+            vec3 R = normalize(reflect(-L, N));
+            float spec = pow(max(dot(V, R), 0.0), shininess);
+            vec3 specular = Ks * spec * lightColor * attenuation;
             specularTotal += specular;
         }
     }
 
-    // Combina tudo
 	vec3 result = (ambient + diffuseTotal) * vec3(objectColor) + specularTotal;
-	color = vec4(result, 1.0);
+	frag_colour = vec4(result, 1.0);
 })";
 
 bool rotateX=false, rotateY=false, rotateZ=false;
@@ -145,6 +137,10 @@ float rotSpeed = 0.05f;
 
 std::vector<Object3D> objects;
 std::vector<Light> sceneLights;
+// Frustrum
+// fov - Campo de visão
+// zNear - Plano de corte próximo: distância mínima para um objeto ser renderizado
+// zFar - Plano de corte afastado: distância máxima para um objeto ser renderizado
 float fov = 45.0f, zNear = 0.1f, zFar = 100.0f;
 
 int selectedObject = 0;
@@ -222,7 +218,7 @@ int main()
 
 	glm::vec3 camPos = glm::vec3(0.0f, 0.0f, 3.0f);
 
-    glUniform1f(glGetUniformLocation(shaderID, "q"), q);
+    glUniform1f(glGetUniformLocation(shaderID, "shininess"), shininess);
     glUniform3f(glGetUniformLocation(shaderID, "camPos"), camPos.x, camPos.y, camPos.z);
     
     glUniform1i(glGetUniformLocation(shaderID, "texBuff"), 0);
@@ -247,7 +243,7 @@ int main()
         glUniformMatrix4fv(glGetUniformLocation(shaderID, "view"), 1, GL_FALSE, glm::value_ptr(view));
         
         glUniform3f(glGetUniformLocation(shaderID, "camPos"), camera.Position.x, camera.Position.y, camera.Position.z);
-        glUniform1f(glGetUniformLocation(shaderID, "q"), q);
+        glUniform1f(glGetUniformLocation(shaderID, "shininess"), shininess);
 
 		// Checa se houveram eventos de input (key pressed, mouse moved etc.) e chama as funções de callback correspondentes
 		glfwPollEvents();
@@ -258,26 +254,21 @@ int main()
 
 		glm::vec3 objPos = glm::vec3(0, 0, 0);
 
-		// Verifica se o scene.txt carregou as 3 luzes para não quebrar a memória
         if (sceneLights.size() >= 3) {
-            
-            // LUZ 0: Key Light
             glUniform3f(glGetUniformLocation(shaderID, "lightPos[0]"), sceneLights[0].position.x, sceneLights[0].position.y, sceneLights[0].position.z);
             glUniform1i(glGetUniformLocation(shaderID, "lightOn[0]"), keyLightOn);
-            glUniform1f(glGetUniformLocation(shaderID, "kl[0]"), sceneLights[0].kl);
-            glUniform1f(glGetUniformLocation(shaderID, "kq[0]"), sceneLights[0].kq);
+            glUniform1f(glGetUniformLocation(shaderID, "Kl[0]"), sceneLights[0].kl);
+            glUniform1f(glGetUniformLocation(shaderID, "Kq[0]"), sceneLights[0].kq);
 
-            // LUZ 1: Fill Light
             glUniform3f(glGetUniformLocation(shaderID, "lightPos[1]"), sceneLights[1].position.x, sceneLights[1].position.y, sceneLights[1].position.z);
             glUniform1i(glGetUniformLocation(shaderID, "lightOn[1]"), fillLightOn);
-            glUniform1f(glGetUniformLocation(shaderID, "kl[1]"), sceneLights[1].kl);
-            glUniform1f(glGetUniformLocation(shaderID, "kq[1]"), sceneLights[1].kq);
+            glUniform1f(glGetUniformLocation(shaderID, "Kl[1]"), sceneLights[1].kl);
+            glUniform1f(glGetUniformLocation(shaderID, "Kq[1]"), sceneLights[1].kq);
 
-            // LUZ 2: Back Light
             glUniform3f(glGetUniformLocation(shaderID, "lightPos[2]"), sceneLights[2].position.x, sceneLights[2].position.y, sceneLights[2].position.z);
             glUniform1i(glGetUniformLocation(shaderID, "lightOn[2]"), backLightOn);
-            glUniform1f(glGetUniformLocation(shaderID, "kl[2]"), sceneLights[2].kl);
-            glUniform1f(glGetUniformLocation(shaderID, "kq[2]"), sceneLights[2].kq);
+            glUniform1f(glGetUniformLocation(shaderID, "Kl[2]"), sceneLights[2].kl);
+            glUniform1f(glGetUniformLocation(shaderID, "Kq[2]"), sceneLights[2].kq);
             
         } else {
             std::cout << "Aviso: O scene.txt precisa ter exatamente 3 linhas do tipo LIGHT." << std::endl;
@@ -290,30 +281,26 @@ int main()
 
 		for (int i = 0; i < objects.size(); i++) {
             if (objects[i].isMoving && objects[i].pathPoints.size() >= 4) {
-                
+                // Cálculo da curva de Bézier
                 int N = objects[i].pathPoints.size();
                 int idx = objects[i].currentTarget;
                 
-                // Pegamos 4 pontos consecutivos. O uso do % N garante o ciclo infinito!
                 glm::vec3 p0 = objects[i].pathPoints[(idx) % N];
                 glm::vec3 p1 = objects[i].pathPoints[(idx + 1) % N];
                 glm::vec3 p2 = objects[i].pathPoints[(idx + 2) % N];
                 glm::vec3 p3 = objects[i].pathPoints[(idx + 3) % N];
 
-                // Avançamos o parâmetro t baseado no tempo (velocidade da curva)
-                objects[i].tParam += deltaTime * 0.5f; // Altere o 0.5f para deixar mais rápido ou mais lento
+                objects[i].tParam += deltaTime * 0.5f; 
 
                 if (objects[i].tParam > 1.0f) {
-                    objects[i].tParam = 0.0f; // Reseta o t
-                    // Avança 3 índices para o próximo segmento da curva de Bézier
+                    objects[i].tParam = 0.0f;
                     objects[i].currentTarget = (objects[i].currentTarget + 3) % N; 
                 }
 
-                // Fórmula Polinomial Cúbica de Bézier
                 float t = objects[i].tParam;
                 float u = 1.0f - t;
                 
-                // P(t) = (1-t)^3 * P0 + 3t(1-t)^2 * P1 + 3t^2(1-t) * P2 + t^3 * P3
+                // P(t) = (1-t)^3 * p0 + 3t(1-t)^2 * p1 + 3t^2(1-t) * p2 + t^3 * p3
                 glm::vec3 bezierPos = (u * u * u) * p0 + 
                                       (3.0f * u * u * t) * p1 + 
                                       (3.0f * u * t * t) * p2 + 
@@ -338,9 +325,9 @@ int main()
 
             glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
 
-            glUniform3f(glGetUniformLocation(shaderID, "ka"), objects[i].ka.r, objects[i].ka.g, objects[i].ka.b);
-            glUniform3f(glGetUniformLocation(shaderID, "kd"), objects[i].kd.r, objects[i].kd.g, objects[i].kd.b);
-            glUniform3f(glGetUniformLocation(shaderID, "ks"), objects[i].ks.r, objects[i].ks.g, objects[i].ks.b);
+            glUniform3f(glGetUniformLocation(shaderID, "Ka"), objects[i].ka.r, objects[i].ka.g, objects[i].ka.b);
+            glUniform3f(glGetUniformLocation(shaderID, "Kd"), objects[i].kd.r, objects[i].kd.g, objects[i].kd.b);
+            glUniform3f(glGetUniformLocation(shaderID, "Ks"), objects[i].ks.r, objects[i].ks.g, objects[i].ks.b);
 
             glDrawArrays(GL_TRIANGLES, 0, objects[i].nVertices);
             
@@ -414,13 +401,13 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         objects[selectedObject].position.y -= moveSpeed;
     }
     if (key == GLFW_KEY_EQUAL && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-        q += 2.0f;
-        cout << "Brilho Especular (q) aumentado para: " << q << endl;
+        shininess += 2.0f;
+        cout << "Brilho Especular (shininess) aumentado para: " << shininess << endl;
     }
     if (key == GLFW_KEY_MINUS && (action == GLFW_PRESS || action == GLFW_REPEAT)) {
-        q -= 2.0f;
-        if (q < 1.0f) q = 1.0f; 
-        cout << "Brilho Especular (q) diminuido para: " << q << endl;
+        shininess -= 2.0f;
+        if (shininess < 1.0f) shininess = 1.0f; 
+        cout << "Brilho Especular (shininess) diminuido para: " << shininess << endl;
     }
 }
 
@@ -472,30 +459,6 @@ int setupShader()
 	return shaderProgram;
 }
 
-GLuint loadTexture(string filePath) {
-    GLuint textureID;
-    glGenTextures(1, &textureID);
-    glBindTexture(GL_TEXTURE_2D, textureID);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-    int width, height, nrChannels;
-    stbi_set_flip_vertically_on_load(true); 
-    unsigned char *data = stbi_load(filePath.c_str(), &width, &height, &nrChannels, 0);
-    
-    if (data) {
-        GLenum format = (nrChannels == 4) ? GL_RGBA : GL_RGB;
-		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-        glGenerateMipmap(GL_TEXTURE_2D);
-    } else {
-        std::cout << "Falha ao carregar textura: " << filePath << std::endl;
-    }
-    stbi_image_free(data);
-    return textureID;
-}
 
 void mouse_callback(GLFWwindow* window, double xpos, double ypos)
 {
